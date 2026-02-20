@@ -1,3 +1,12 @@
+const WebSocket = require("ws");
+
+const PORT = process.env.PORT || 10000;
+
+// Create WebSocket Server
+const wss = new WebSocket.Server({ port: PORT });
+
+console.log("🚀 WebSocket server running on port", PORT);
+
 wss.on("connection", (ws) => {
   console.log("✅ Client connected");
 
@@ -13,9 +22,9 @@ wss.on("connection", (ws) => {
           break;
 
         case "location":
-          console.log("📍 Location update from:", data.user);
+          console.log("📍 Location from:", data.user);
 
-          // Broadcast to other clients
+          // Broadcast to others
           wss.clients.forEach((client) => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
               client.send(JSON.stringify({
