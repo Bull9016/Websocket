@@ -93,6 +93,17 @@ wss.on("connection", (ws) => {
           });
           break;
 
+        case "navigation_invite":
+          broadcastToCircle(data.circleId || ws.circleId, {
+            type: "navigation_invite",
+            userId: data.userId,
+            destinationName: data.destinationName,
+            destinationLat: data.destinationLat,
+            destinationLng: data.destinationLng,
+            polyline: data.polyline,
+          });
+          break;
+
         case "sos_alert":
           broadcastToCircle(data.circleId || ws.circleId, {
             type: "sos_alert",
