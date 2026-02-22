@@ -121,6 +121,16 @@ wss.on("connection", (ws) => {
           });
           break;
 
+        case "chat_message":
+          broadcastToCircle(data.circleId || ws.circleId, {
+            type: "chat_message",
+            userId: data.userId,
+            userName: data.userName,
+            content: data.content,
+            timestamp: data.timestamp || new Date().toISOString(),
+          });
+          break;
+
         default:
           console.log("⚠ Unknown message type:", data.type);
       }
