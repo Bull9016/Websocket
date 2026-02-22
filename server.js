@@ -1,9 +1,25 @@
+const http = require("http");
 const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 10000;
-const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`🚀 WebSocket server running on port ${PORT}`);
+// 1. Create a standard HTTP server for Render's health check
+const server = http.createServer((req, res) => {
+  if (req.url === "/health" || req.url === "/") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      status: "ok",
+      uptime: process.uptime(),
+      circles: Object.keys(circles).length,
+    }));
+  } else {
+    res.writeHead(404);
+    res.end("Not found");
+  }
+});
+
+// 2. Attach WebSocket server to the HTTP server (same port)
+const wss = new WebSocket.Server({ server });
 
 // circles = { circleId: Set of clients }
 const circles = {};
@@ -13,7 +29,6 @@ wss.on("connection", (ws) => {
 
   ws.on("message", (message) => {
     try {
-      // Ensure we handle Buffer or String correctly
       const data = JSON.parse(message.toString());
       console.log(`📨 [${data.type}] from ${data.userId || 'unknown'} in ${data.circleId || ws.circleId || 'no-circle'}`);
       console.log("   Details:", data);
@@ -32,9 +47,7 @@ wss.on("connection", (ws) => {
           console.log(`👥 User joined circle: ${data.circleId}`);
           break;
 
-        case "location_update":
-          // Modern location update with circle-awareness
-          // Priority: 1. data.circleId, 2. ws.circleId
+        case "location_update": {
           const targetCircleId = data.circleId || ws.circleId;
           if (!targetCircleId) {
             console.log("⚠ No circleId for location update from:", data.userId);
@@ -51,12 +64,13 @@ wss.on("connection", (ws) => {
             heading: data.heading,
           });
           break;
+        }
 
         case "location":
           // Legacy/Fallback location update
           console.log("📍 Legacy location update from:", data.user || data.userId);
           broadcastToCircle(ws.circleId, {
-            type: "location_update", // Convert to modern type for clients
+            type: "location_update",
             userId: data.userId || data.user,
             lat: data.lat,
             lng: data.lng,
@@ -84,6 +98,7 @@ wss.on("connection", (ws) => {
             type: "sos_alert",
             userId: data.userId,
             message: data.message,
+            alertId: data.alertId,
           });
           break;
 
@@ -91,6 +106,7 @@ wss.on("connection", (ws) => {
           broadcastToCircle(data.circleId || ws.circleId, {
             type: "sos_resolve",
             userId: data.userId,
+            alertId: data.alertId,
           });
           break;
 
@@ -123,3 +139,8 @@ function broadcastToCircle(circleId, payload) {
     }
   });
 }
+
+// 3. Start the HTTP server (Render will hit this for health checks)
+server.listen(PORT, () => {
+  console.log(`🚀 WebSocket + HTTP server running on port ${PORT}`);
+});
