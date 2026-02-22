@@ -21,7 +21,7 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(raw);
             const type = (data.type || '').toLowerCase().trim();
-            const circleId = (data.circleId || '').trim();
+            const circleId = (data.circleId || '').toLowerCase().trim();
 
             if (!type) return;
 
