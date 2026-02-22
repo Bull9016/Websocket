@@ -15,7 +15,8 @@ wss.on("connection", (ws) => {
     try {
       // Ensure we handle Buffer or String correctly
       const data = JSON.parse(message.toString());
-      console.log("📨 Received:", data);
+      console.log(`📨 [${data.type}] from ${data.userId || 'unknown'} in ${data.circleId || ws.circleId || 'no-circle'}`);
+      console.log("   Details:", data);
 
       switch (data.type) {
         case "ping":
