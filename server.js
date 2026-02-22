@@ -1,96 +1,98 @@
-const { WebSocketServer } = require('ws');
-const http = require('http');
+const WebSocket = require("ws");
 
-// Port for Render or local dev
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 10000;
+const wss = new WebSocket.Server({ port: PORT });
 
-// Create a simple HTTP server to satisfy Render's health checks
-const server = http.createServer((req, res) => {
-    if (req.url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('OK');
-    } else {
-        res.writeHead(404);
-        res.end();
+console.log(`WebSocket server running on port ${PORT}`);
+
+const circles = {}; 
+// Structure:
+// circles = {
+//   circleId: Set of clients
+// }
+
+wss.on("connection", (ws) => {
+  console.log("Client connected");
+
+  ws.on("message", (message) => {
+    try {
+      const data = JSON.parse(message);
+
+      switch (data.type) {
+
+        case "join_circle":
+          ws.circleId = data.circleId;
+
+          if (!circles[data.circleId]) {
+            circles[data.circleId] = new Set();
+          }
+
+          circles[data.circleId].add(ws);
+
+          console.log(`User joined circle ${data.circleId}`);
+          break;
+
+        case "location_update":
+          broadcastToCircle(ws.circleId, {
+            type: "location_update",
+            userId: data.userId,
+            lat: data.lat,
+            lng: data.lng,
+            speed: data.speed,
+          });
+          break;
+
+        case "route_update":
+          broadcastToCircle(ws.circleId, {
+            type: "route_update",
+            polyline: data.polyline,
+          });
+          break;
+
+        case "navigation_cancel":
+          broadcastToCircle(ws.circleId, {
+            type: "navigation_cancel",
+          });
+          break;
+
+        case "sos_alert":
+          broadcastToCircle(ws.circleId, {
+            type: "sos_alert",
+            userId: data.userId,
+            message: data.message,
+          });
+          break;
+
+        default:
+          console.log("Unknown message type:", data.type);
+      }
+
+    } catch (err) {
+      console.error("Invalid JSON:", err);
     }
+  });
+
+  ws.on("close", () => {
+    if (ws.circleId && circles[ws.circleId]) {
+      circles[ws.circleId].delete(ws);
+
+      if (circles[ws.circleId].size === 0) {
+        delete circles[ws.circleId];
+      }
+    }
+
+    console.log("Client disconnected");
+  });
 });
 
-const wss = new WebSocketServer({ server });
+function broadcastToCircle(circleId, payload) {
+  if (!circleId || !circles[circleId]) return;
 
-// Map to store clients by circleId
-// Using a Set for each circleId to store WebSocket connections
-const circles = new Map();
+  const message = JSON.stringify(payload);
 
-wss.on('connection', (ws) => {
-    console.log(' New client connected');
-
-    let currentCircleId = null;
-    let currentUserId = null;
-
-    ws.on('message', (message) => {
-        try {
-            const data = JSON.parse(message);
-
-            switch (data.type) {
-                case 'join':
-                    handleJoin(ws, data);
-                    break;
-                case 'location':
-                    handleLocation(ws, data);
-                    break;
-                default:
-                    console.log(` Unknown message type: ${data.type}`);
-            }
-        } catch (e) {
-            console.error(' Error processing message:', e.message);
-        }
-    });
-
-    ws.on('close', () => {
-        console.log(` Client disconnected: ${currentUserId || 'Unknown'}`);
-        if (currentCircleId && circles.has(currentCircleId)) {
-            circles.get(currentCircleId).delete(ws);
-            if (circles.get(currentCircleId).size === 0) {
-                circles.delete(currentCircleId);
-            }
-        }
-    });
-
-    function handleJoin(socket, data) {
-        const { circleId, userId } = data;
-        if (!circleId || !userId) return;
-
-        currentCircleId = circleId;
-        currentUserId = userId;
-
-        if (!circles.has(circleId)) {
-            circles.set(circleId, new Set());
-        }
-        circles.get(circleId).add(socket);
-
-        console.log(` User ${userId} joined circle ${circleId}`);
+  circles[circleId].forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
     }
-
-    function handleLocation(socket, data) {
-        const { circleId, data: locationData } = data;
-        if (!circleId || !locationData) return;
-
-        // Broadcast to everyone in the same circle EXCEPT the sender
-        if (circles.has(circleId)) {
-            const message = JSON.stringify({
-                type: 'location',
-                data: locationData
-            });
-
-            circles.get(circleId).forEach((client) => {
-                if (client !== socket && client.readyState === 1) { // 1 = OPEN
-                    client.send(message);
-                }
-            });
-        }
-    }
-});
-
-server.listen(PORT, () => {
-    console.log(`🚀 WebSocket server running on port ${PORT}`);
-});
+  });
+}
