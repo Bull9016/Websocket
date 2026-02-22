@@ -87,6 +87,13 @@ wss.on("connection", (ws) => {
           });
           break;
 
+        case "sos_resolve":
+          broadcastToCircle(data.circleId || ws.circleId, {
+            type: "sos_resolve",
+            userId: data.userId,
+          });
+          break;
+
         default:
           console.log("⚠ Unknown message type:", data.type);
       }
