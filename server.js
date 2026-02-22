@@ -34,7 +34,14 @@ wss.on("connection", (ws) => {
 
         case "location_update":
           // Modern location update with circle-awareness
-          broadcastToCircle(ws.circleId, {
+          // Priority: 1. data.circleId, 2. ws.circleId
+          const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) {
+            console.log("⚠ No circleId for location update from:", data.userId);
+            break;
+          }
+
+          broadcastToCircle(targetCircleId, {
             type: "location_update",
             userId: data.userId,
             lat: data.lat,
@@ -60,20 +67,20 @@ wss.on("connection", (ws) => {
           break;
 
         case "route_update":
-          broadcastToCircle(ws.circleId, {
+          broadcastToCircle(data.circleId || ws.circleId, {
             type: "route_update",
             polyline: data.polyline,
           });
           break;
 
         case "navigation_cancel":
-          broadcastToCircle(ws.circleId, {
+          broadcastToCircle(data.circleId || ws.circleId, {
             type: "navigation_cancel",
           });
           break;
 
         case "sos_alert":
-          broadcastToCircle(ws.circleId, {
+          broadcastToCircle(data.circleId || ws.circleId, {
             type: "sos_alert",
             userId: data.userId,
             message: data.message,
