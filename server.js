@@ -143,6 +143,19 @@ wss.on("connection", (ws) => {
           });
           break;
 
+        case "navigation_suggestion":
+          broadcastToCircle(data.circleId || ws.circleId, {
+            type: "navigation_suggestion",
+            circleId: data.circleId,
+            senderId: data.userId,
+            senderName: data.userName,
+            destinationName: data.destinationName,
+            destinationLat: data.destinationLat,
+            destinationLng: data.destinationLng,
+            timestamp: data.timestamp || new Date().toISOString(),
+          });
+          break;
+
         default:
           console.log("⚠ Unknown message type:", data.type);
       }
