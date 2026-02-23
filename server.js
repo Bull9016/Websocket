@@ -131,6 +131,18 @@ wss.on("connection", (ws) => {
           });
           break;
 
+        case "ride_command":
+          broadcastToCircle(data.circleId || ws.circleId, {
+            type: "ride_command",
+            circleId: data.circleId,
+            senderId: data.userId,
+            senderName: data.userName,
+            command: data.command,
+            emoji: data.emoji,
+            timestamp: data.timestamp || new Date().toISOString(),
+          });
+          break;
+
         default:
           console.log("⚠ Unknown message type:", data.type);
       }
