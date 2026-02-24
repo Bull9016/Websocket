@@ -40,21 +40,56 @@ wss.on("connection", (ws) => {
           ws.send(JSON.stringify({ type: "pong" }));
           break;
 
-        case "join_circle":
-          ws.circleId = data.circleId;
-          if (!circles[data.circleId]) {
-            circles[data.circleId] = new Set();
-          }
-          circles[data.circleId].add(ws);
-          console.log(`👥 User joined circle: ${data.circleId}`);
+        case "join_circle": {
+          const oldCircleId = ws.circleId;
+          const newCircleId = data.circleId;
 
-          // Send message history if available
-          if (messageHistory[data.circleId]) {
-            messageHistory[data.circleId].forEach((msg) => {
+          if (!newCircleId) break;
+
+          // 1. If switching circles on the same connection, remove from old
+          if (oldCircleId && oldCircleId !== newCircleId) {
+            if (circles[oldCircleId]) {
+              circles[oldCircleId].delete(ws);
+              // Notify old circle that this user is leaving/offline
+              broadcastToCircle(oldCircleId, {
+                type: "user_status",
+                userId: ws.userId || data.userId,
+                circleId: oldCircleId,
+                status: "offline",
+                lastSeen: new Date().toISOString()
+              }, ws);
+
+              if (circles[oldCircleId].size === 0) delete circles[oldCircleId];
+            }
+          }
+
+          ws.circleId = newCircleId;
+          ws.userId = data.userId;
+          ws.userName = data.userName;
+
+          if (!circles[newCircleId]) {
+            circles[newCircleId] = new Set();
+          }
+          circles[newCircleId].add(ws);
+          console.log(`👥 User ${ws.userId} joined circle: ${newCircleId}`);
+
+          // 2. Notify others in the new circle that this user is online
+          broadcastToCircle(newCircleId, {
+            type: "user_status",
+            userId: data.userId,
+            circleId: newCircleId,
+            userName: data.userName,
+            status: "online"
+          }, ws);
+
+          // 3. Send message history if available
+          if (messageHistory[newCircleId]) {
+            messageHistory[newCircleId].forEach((msg) => {
               ws.send(JSON.stringify(msg));
             });
           }
           break;
+        }
 
         case "location_update": {
           const targetCircleId = data.circleId || ws.circleId;
@@ -63,6 +98,7 @@ wss.on("connection", (ws) => {
             break;
           }
 
+          // Strict isolation: only broadcast to the target circle
           broadcastToCircle(targetCircleId, {
             type: "location_update",
             circleId: targetCircleId,
@@ -78,6 +114,7 @@ wss.on("connection", (ws) => {
 
         case "location": {
           const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
           // Legacy/Fallback location update
           console.log("📍 Legacy location update from:", data.user || data.userId);
           broadcastToCircle(targetCircleId, {
@@ -95,6 +132,7 @@ wss.on("connection", (ws) => {
 
         case "route_update": {
           const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
           broadcastToCircle(targetCircleId, {
             type: "route_update",
             circleId: targetCircleId,
@@ -105,6 +143,7 @@ wss.on("connection", (ws) => {
 
         case "navigation_cancel": {
           const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
           broadcastToCircle(targetCircleId, {
             type: "navigation_cancel",
             circleId: targetCircleId,
@@ -114,6 +153,7 @@ wss.on("connection", (ws) => {
 
         case "navigation_invite": {
           const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
           broadcastToCircle(targetCircleId, {
             type: "navigation_invite",
             circleId: targetCircleId,
@@ -128,6 +168,7 @@ wss.on("connection", (ws) => {
 
         case "sos_alert": {
           const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
           broadcastToCircle(targetCircleId, {
             type: "sos_alert",
             circleId: targetCircleId,
@@ -140,6 +181,7 @@ wss.on("connection", (ws) => {
 
         case "sos_resolve": {
           const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
           broadcastToCircle(targetCircleId, {
             type: "sos_resolve",
             circleId: targetCircleId,
@@ -151,6 +193,8 @@ wss.on("connection", (ws) => {
 
         case "chat_message": {
           const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
+
           const chatPayload = {
             type: "chat_message",
             circleId: targetCircleId,
@@ -163,14 +207,12 @@ wss.on("connection", (ws) => {
           };
 
           // Store in history
-          if (targetCircleId) {
-            if (!messageHistory[targetCircleId]) {
-              messageHistory[targetCircleId] = [];
-            }
-            messageHistory[targetCircleId].push(chatPayload);
-            if (messageHistory[targetCircleId].length > 50) {
-              messageHistory[targetCircleId].shift(); // Keep last 50
-            }
+          if (!messageHistory[targetCircleId]) {
+            messageHistory[targetCircleId] = [];
+          }
+          messageHistory[targetCircleId].push(chatPayload);
+          if (messageHistory[targetCircleId].length > 50) {
+            messageHistory[targetCircleId].shift(); // Keep last 50
           }
 
           broadcastToCircle(targetCircleId, chatPayload, ws);
@@ -187,12 +229,21 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     if (ws.circleId && circles[ws.circleId]) {
+      // Notify circle that this user is now offline
+      broadcastToCircle(ws.circleId, {
+        type: "user_status",
+        userId: ws.userId || "unknown",
+        circleId: ws.circleId,
+        status: "offline",
+        lastSeen: new Date().toISOString()
+      }, ws);
+
       circles[ws.circleId].delete(ws);
       if (circles[ws.circleId].size === 0) {
         delete circles[ws.circleId];
       }
     }
-    console.log("❌ Client disconnected");
+    console.log(`❌ Client ${ws.userId || 'unknown'} disconnected`);
   });
 });
 
