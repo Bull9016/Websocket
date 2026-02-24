@@ -88,6 +88,21 @@ wss.on("connection", (ws) => {
               ws.send(JSON.stringify(msg));
             });
           }
+
+          // 4. Send current status of all members in the circle to the new user
+          if (circles[newCircleId]) {
+            circles[newCircleId].forEach((client) => {
+              if (client !== ws && client.userId) {
+                ws.send(JSON.stringify({
+                  type: "user_status",
+                  userId: client.userId,
+                  userName: client.userName,
+                  circleId: newCircleId,
+                  status: "online"
+                }));
+              }
+            });
+          }
           break;
         }
 
@@ -217,6 +232,21 @@ wss.on("connection", (ws) => {
           }
 
           broadcastToCircle(targetCircleId, chatPayload, ws);
+          break;
+        }
+
+        case "ride_command": {
+          const targetCircleId = data.circleId || ws.circleId;
+          if (!targetCircleId) break;
+          broadcastToCircle(targetCircleId, {
+            type: "ride_command",
+            circleId: targetCircleId,
+            userId: data.userId,
+            userName: data.userName,
+            command: data.command,
+            emoji: data.emoji,
+            timestamp: data.timestamp || new Date().toISOString(),
+          }, ws);
           break;
         }
 
