@@ -23,6 +23,8 @@ const wss = new WebSocket.Server({ server });
 
 // circles = { circleId: Set of clients }
 const circles = {};
+// messageHistory = { circleId: Array of chatPayloads }
+const messageHistory = {};
 
 wss.on("connection", (ws) => {
   console.log("✅ Client connected");
@@ -45,6 +47,13 @@ wss.on("connection", (ws) => {
           }
           circles[data.circleId].add(ws);
           console.log(`👥 User joined circle: ${data.circleId}`);
+
+          // Send message history if available
+          if (messageHistory[data.circleId]) {
+            messageHistory[data.circleId].forEach((msg) => {
+              ws.send(JSON.stringify(msg));
+            });
+          }
           break;
 
         case "location_update": {
@@ -56,105 +65,117 @@ wss.on("connection", (ws) => {
 
           broadcastToCircle(targetCircleId, {
             type: "location_update",
+            circleId: targetCircleId,
             userId: data.userId,
             lat: data.lat,
             lng: data.lng,
             speed: data.speed,
             userName: data.userName,
             heading: data.heading,
-          });
+          }, ws);
           break;
         }
 
-        case "location":
+        case "location": {
+          const targetCircleId = data.circleId || ws.circleId;
           // Legacy/Fallback location update
           console.log("📍 Legacy location update from:", data.user || data.userId);
-          broadcastToCircle(ws.circleId, {
+          broadcastToCircle(targetCircleId, {
             type: "location_update",
+            circleId: targetCircleId,
             userId: data.userId || data.user,
             lat: data.lat,
             lng: data.lng,
             speed: data.speed,
             userName: data.userName || data.user,
             heading: data.heading || 0,
-          });
+          }, ws);
           break;
+        }
 
-        case "route_update":
-          broadcastToCircle(data.circleId || ws.circleId, {
+        case "route_update": {
+          const targetCircleId = data.circleId || ws.circleId;
+          broadcastToCircle(targetCircleId, {
             type: "route_update",
+            circleId: targetCircleId,
             polyline: data.polyline,
-          });
+          }, ws);
           break;
+        }
 
-        case "navigation_cancel":
-          broadcastToCircle(data.circleId || ws.circleId, {
+        case "navigation_cancel": {
+          const targetCircleId = data.circleId || ws.circleId;
+          broadcastToCircle(targetCircleId, {
             type: "navigation_cancel",
-          });
+            circleId: targetCircleId,
+          }, ws);
           break;
+        }
 
-        case "navigation_invite":
-          broadcastToCircle(data.circleId || ws.circleId, {
+        case "navigation_invite": {
+          const targetCircleId = data.circleId || ws.circleId;
+          broadcastToCircle(targetCircleId, {
             type: "navigation_invite",
+            circleId: targetCircleId,
             userId: data.userId,
             destinationName: data.destinationName,
             destinationLat: data.destinationLat,
             destinationLng: data.destinationLng,
             polyline: data.polyline,
-          });
+          }, ws);
           break;
+        }
 
-        case "sos_alert":
-          broadcastToCircle(data.circleId || ws.circleId, {
+        case "sos_alert": {
+          const targetCircleId = data.circleId || ws.circleId;
+          broadcastToCircle(targetCircleId, {
             type: "sos_alert",
+            circleId: targetCircleId,
             userId: data.userId,
             message: data.message,
             alertId: data.alertId,
-          });
+          }, ws);
           break;
+        }
 
-        case "sos_resolve":
-          broadcastToCircle(data.circleId || ws.circleId, {
+        case "sos_resolve": {
+          const targetCircleId = data.circleId || ws.circleId;
+          broadcastToCircle(targetCircleId, {
             type: "sos_resolve",
+            circleId: targetCircleId,
             userId: data.userId,
             alertId: data.alertId,
-          });
+          }, ws);
           break;
+        }
 
-        case "chat_message":
-          broadcastToCircle(data.circleId || ws.circleId, {
+        case "chat_message": {
+          const targetCircleId = data.circleId || ws.circleId;
+          const chatPayload = {
             type: "chat_message",
+            circleId: targetCircleId,
             userId: data.userId,
             userName: data.userName,
             content: data.content,
             timestamp: data.timestamp || new Date().toISOString(),
-          });
-          break;
+            mediaUrl: data.mediaUrl,
+            mediaType: data.mediaType,
+          };
 
-        case "ride_command":
-          broadcastToCircle(data.circleId || ws.circleId, {
-            type: "ride_command",
-            circleId: data.circleId,
-            senderId: data.userId,
-            senderName: data.userName,
-            command: data.command,
-            emoji: data.emoji,
-            timestamp: data.timestamp || new Date().toISOString(),
-          });
-          break;
+          // Store in history
+          if (targetCircleId) {
+            if (!messageHistory[targetCircleId]) {
+              messageHistory[targetCircleId] = [];
+            }
+            messageHistory[targetCircleId].push(chatPayload);
+            if (messageHistory[targetCircleId].length > 50) {
+              messageHistory[targetCircleId].shift(); // Keep last 50
+            }
+          }
 
-        case "navigation_suggestion":
-          broadcastToCircle(data.circleId || ws.circleId, {
-            type: "navigation_suggestion",
-            circleId: data.circleId,
-            senderId: data.userId,
-            senderName: data.userName,
-            destinationName: data.destinationName,
-            destinationLat: data.destinationLat,
-            destinationLng: data.destinationLng,
-            timestamp: data.timestamp || new Date().toISOString(),
-          });
+          broadcastToCircle(targetCircleId, chatPayload, ws);
           break;
+        }
 
         default:
           console.log("⚠ Unknown message type:", data.type);
@@ -175,12 +196,12 @@ wss.on("connection", (ws) => {
   });
 });
 
-function broadcastToCircle(circleId, payload) {
+function broadcastToCircle(circleId, payload, skipClient = null) {
   if (!circleId || !circles[circleId]) return;
 
   const message = JSON.stringify(payload);
   circles[circleId].forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
+    if (client !== skipClient && client.readyState === WebSocket.OPEN) {
       client.send(message);
     }
   });
