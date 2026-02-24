@@ -197,6 +197,7 @@ wss.on("connection", (ws) => {
 
           const chatPayload = {
             type: "chat_message",
+            id: data.id,
             circleId: targetCircleId,
             userId: data.userId,
             userName: data.userName,
